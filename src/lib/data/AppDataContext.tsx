@@ -1,25 +1,73 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/client";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { applyRealizedSells, totalQuantity } from "@/lib/fifo";
 import { computeRealizedSellHistory, sumRealizedGainKrwForYear } from "@/lib/simulate";
 import type { BuyLot, PortfolioSettings, SellTransaction } from "@/lib/types";
 import {
-  ensureSeeded,
-  fetchBuyLots,
-  fetchPortfolioSettings,
-  fetchSellTransactions,
-  fetchSimulationSettings,
+  clearAll,
+  DEFAULT_SIMULATION_SETTINGS,
+  EMPTY_PORTFOLIO_SETTINGS,
+  generateId,
+  isInitialized as loadIsInitialized,
+  loadBuyLots,
+  loadPortfolioSettings,
+  loadSellTransactions,
+  loadSimulationSettings,
+  markInitialized,
+  saveBuyLots,
+  savePortfolioSettings,
+  saveSellTransactions,
+  saveSimulationSettings,
   type SimulationSettingsRow,
-} from "./repository";
+} from "./localStore";
+
+export type { SimulationSettingsRow };
+
+export interface NewBuyLotInput {
+  date: string | null;
+  quantity: number;
+  pricePerShareUsd: number;
+  source?: BuyLot["source"];
+  note?: string | null;
+}
+
+export interface BuyLotPatch {
+  date?: string | null;
+  quantity?: number;
+  pricePerShareUsd?: number;
+  note?: string | null;
+}
+
+export interface NewSellTxInput {
+  date: string;
+  quantity: number;
+  pricePerShareUsd: number;
+  fxRate: number;
+  note?: string | null;
+}
+
+export interface SellTxPatch {
+  date?: string;
+  quantity?: number;
+  pricePerShareUsd?: number;
+  fxRate?: number;
+  note?: string | null;
+}
+
+export interface BackupData {
+  exportedAt: string;
+  buyLots: BuyLot[];
+  sellTransactions: SellTransaction[];
+  portfolioSettings: PortfolioSettings;
+  simulationSettings: SimulationSettingsRow;
+}
 
 interface AppDataState {
+  /** True until the initial client-side localStorage read has completed. */
   loading: boolean;
-  error: string | null;
-  user: User | null;
-  /** All buy lots as originally recorded (not net of sells). */
+  /** True once the user has completed (or skipped) the first-run data import. */
+  initialized: boolean;
   allBuyLots: BuyLot[];
   sellTransactions: SellTransaction[];
   /** Buy lots remaining after applying every recorded real sell, FIFO. */
@@ -35,76 +83,50 @@ interface AppDataState {
    * Use this as the "already realized this year" baseline for tax calcs.
    */
   effectivePriorRealizedGainKrw: number;
-  refresh: () => Promise<void>;
-  setSimulationSettingsLocal: (patch: Partial<SimulationSettingsRow>) => void;
+
+  addBuyLot: (input: NewBuyLotInput) => void;
+  updateBuyLot: (id: string, patch: BuyLotPatch) => void;
+  deleteBuyLot: (id: string) => void;
+  addSellTransaction: (input: NewSellTxInput) => void;
+  updateSellTransaction: (id: string, patch: SellTxPatch) => void;
+  deleteSellTransaction: (id: string) => void;
+  updatePortfolioSettings: (patch: Partial<PortfolioSettings>) => void;
+  updateSimulationSettings: (patch: Partial<SimulationSettingsRow>) => void;
+  /** Merges imported buy lots/sells by id (skips duplicates), replaces settings. */
+  importData: (data: BackupData) => void;
+  exportData: () => BackupData;
+  /** Marks first-run setup done without importing anything (start empty, add manually). */
+  skipInitialImport: () => void;
+  /** Wipes all local data and returns to the first-run import screen. */
+  resetAll: () => void;
 }
 
 const AppDataContext = createContext<AppDataState | null>(null);
 
-const FALLBACK_PORTFOLIO: PortfolioSettings = {
-  brokerQuantity: 2631,
-  brokerAvgPriceUsd: 139.84,
-};
-
-const FALLBACK_SIM_SETTINGS: SimulationSettingsRow = {
-  annualDeductionKrw: 2_500_000,
-  taxRatePercent: 0.22,
-  priorRealizedGainKrw: 0,
-  lastPriceUsd: null,
-  lastFxRate: null,
-};
-
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [initialized, setInitialized] = useState(false);
   const [allBuyLots, setAllBuyLots] = useState<BuyLot[]>([]);
   const [sellTransactions, setSellTransactions] = useState<SellTransaction[]>([]);
-  const [portfolioSettings, setPortfolioSettings] = useState<PortfolioSettings>(FALLBACK_PORTFOLIO);
+  const [portfolioSettings, setPortfolioSettings] =
+    useState<PortfolioSettings>(EMPTY_PORTFOLIO_SETTINGS);
   const [simulationSettings, setSimulationSettings] =
-    useState<SimulationSettingsRow>(FALLBACK_SIM_SETTINGS);
+    useState<SimulationSettingsRow>(DEFAULT_SIMULATION_SETTINGS);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const supabase = createClient();
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
-      setUser(currentUser);
-      if (!currentUser) {
-        setLoading(false);
-        return;
-      }
-
-      await ensureSeeded(currentUser.id);
-
-      const [lots, sells, portfolio, simSettings] = await Promise.all([
-        fetchBuyLots(),
-        fetchSellTransactions(),
-        fetchPortfolioSettings(),
-        fetchSimulationSettings(),
-      ]);
-
-      setAllBuyLots(lots);
-      setSellTransactions(sells);
-      setPortfolioSettings(portfolio);
-      setSimulationSettings(simSettings);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "데이터를 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // One-time client-side read of localStorage on mount. This can't run during
+  // the initial render (server-rendered HTML and the client's first hydration
+  // pass both need to show the same "loading" defaults above, since
+  // localStorage doesn't exist on the server) — an effect is the standard,
+  // SSR-safe place to pull in browser-only storage.
   useEffect(() => {
-    // Standard mount-time data load; `load` manages its own loading/error
-    // state internally (including for manual refresh() calls), which this
-    // stricter lint rule flags even though it's the intended pattern here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-  }, [load]);
+    setInitialized(loadIsInitialized());
+    setAllBuyLots(loadBuyLots());
+    setSellTransactions(loadSellTransactions());
+    setPortfolioSettings(loadPortfolioSettings());
+    setSimulationSettings(loadSimulationSettings());
+    setLoading(false);
+  }, []);
 
   const remainingLots = useMemo(
     () => applyRealizedSells(allBuyLots, sellTransactions),
@@ -120,14 +142,136 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const effectivePriorRealizedGainKrw =
     simulationSettings.priorRealizedGainKrw + yearRealizedGainFromSalesKrw;
 
-  const setSimulationSettingsLocal = useCallback((patch: Partial<SimulationSettingsRow>) => {
-    setSimulationSettings((prev) => ({ ...prev, ...patch }));
-  }, []);
+  function addBuyLot(input: NewBuyLotInput) {
+    const lot: BuyLot = {
+      id: generateId("lot"),
+      date: input.date,
+      quantity: input.quantity,
+      pricePerShareUsd: input.pricePerShareUsd,
+      acquisitionFxRate: null,
+      isAdjustment: false,
+      source: input.source ?? "manual",
+      note: input.note ?? null,
+    };
+    setAllBuyLots((prev) => {
+      const next = [...prev, lot];
+      saveBuyLots(next);
+      return next;
+    });
+  }
+
+  function updateBuyLot(id: string, patch: BuyLotPatch) {
+    setAllBuyLots((prev) => {
+      const next = prev.map((lot) => (lot.id === id ? { ...lot, ...patch } : lot));
+      saveBuyLots(next);
+      return next;
+    });
+  }
+
+  function deleteBuyLot(id: string) {
+    setAllBuyLots((prev) => {
+      const next = prev.filter((lot) => lot.id !== id);
+      saveBuyLots(next);
+      return next;
+    });
+  }
+
+  function addSellTransaction(input: NewSellTxInput) {
+    const tx: SellTransaction = {
+      id: generateId("sell"),
+      date: input.date,
+      quantity: input.quantity,
+      pricePerShareUsd: input.pricePerShareUsd,
+      fxRate: input.fxRate,
+      note: input.note ?? null,
+    };
+    setSellTransactions((prev) => {
+      const next = [...prev, tx];
+      saveSellTransactions(next);
+      return next;
+    });
+  }
+
+  function updateSellTransaction(id: string, patch: SellTxPatch) {
+    setSellTransactions((prev) => {
+      const next = prev.map((tx) => (tx.id === id ? { ...tx, ...patch } : tx));
+      saveSellTransactions(next);
+      return next;
+    });
+  }
+
+  function deleteSellTransaction(id: string) {
+    setSellTransactions((prev) => {
+      const next = prev.filter((tx) => tx.id !== id);
+      saveSellTransactions(next);
+      return next;
+    });
+  }
+
+  function updatePortfolioSettings(patch: Partial<PortfolioSettings>) {
+    setPortfolioSettings((prev) => {
+      const next = { ...prev, ...patch };
+      savePortfolioSettings(next);
+      return next;
+    });
+  }
+
+  function updateSimulationSettings(patch: Partial<SimulationSettingsRow>) {
+    setSimulationSettings((prev) => {
+      const next = { ...prev, ...patch };
+      saveSimulationSettings(next);
+      return next;
+    });
+  }
+
+  function importData(data: BackupData) {
+    setAllBuyLots((prev) => {
+      const existingIds = new Set(prev.map((l) => l.id));
+      const next = [...prev, ...data.buyLots.filter((l) => !existingIds.has(l.id))];
+      saveBuyLots(next);
+      return next;
+    });
+    setSellTransactions((prev) => {
+      const existingIds = new Set(prev.map((s) => s.id));
+      const next = [...prev, ...data.sellTransactions.filter((s) => !existingIds.has(s.id))];
+      saveSellTransactions(next);
+      return next;
+    });
+    setPortfolioSettings(data.portfolioSettings);
+    savePortfolioSettings(data.portfolioSettings);
+    setSimulationSettings(data.simulationSettings);
+    saveSimulationSettings(data.simulationSettings);
+    markInitialized();
+    setInitialized(true);
+  }
+
+  function exportData(): BackupData {
+    return {
+      exportedAt: new Date().toISOString(),
+      buyLots: allBuyLots,
+      sellTransactions,
+      portfolioSettings,
+      simulationSettings,
+    };
+  }
+
+  function skipInitialImport() {
+    markInitialized();
+    setInitialized(true);
+  }
+
+  function resetAll() {
+    clearAll();
+    setAllBuyLots([]);
+    setSellTransactions([]);
+    setPortfolioSettings(EMPTY_PORTFOLIO_SETTINGS);
+    setSimulationSettings(DEFAULT_SIMULATION_SETTINGS);
+    setInitialized(false);
+  }
 
   const value: AppDataState = {
     loading,
-    error,
-    user,
+    initialized,
     allBuyLots,
     sellTransactions,
     remainingLots,
@@ -136,8 +280,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     simulationSettings,
     yearRealizedGainFromSalesKrw,
     effectivePriorRealizedGainKrw,
-    refresh: load,
-    setSimulationSettingsLocal,
+    addBuyLot,
+    updateBuyLot,
+    deleteBuyLot,
+    addSellTransaction,
+    updateSellTransaction,
+    deleteSellTransaction,
+    updatePortfolioSettings,
+    updateSimulationSettings,
+    importData,
+    exportData,
+    skipInitialImport,
+    resetAll,
   };
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

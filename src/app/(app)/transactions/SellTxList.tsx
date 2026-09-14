@@ -3,13 +3,12 @@
 import { useMemo, useState } from "react";
 import { Card, NumberField, SectionTitle } from "@/components/ui";
 import { useAppData } from "@/lib/data/AppDataContext";
-import { deleteSellTransaction, updateSellTransaction } from "@/lib/data/repository";
 import { formatKrw, formatShares, formatUsd } from "@/lib/format";
 import { computeRealizedSellHistory } from "@/lib/simulate";
 import type { SellTransaction } from "@/lib/types";
 
 export default function SellTxList() {
-  const { allBuyLots, sellTransactions, refresh } = useAppData();
+  const { allBuyLots, sellTransactions, deleteSellTransaction } = useAppData();
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const history = useMemo(
@@ -48,10 +47,9 @@ export default function SellTxList() {
                   수정
                 </button>
                 <button
-                  onClick={async () => {
+                  onClick={() => {
                     if (!confirm("이 매도 기록을 삭제하시겠습니까? 보유 lot이 복원됩니다.")) return;
-                    await deleteSellTransaction(tx.id);
-                    await refresh();
+                    deleteSellTransaction(tx.id);
                   }}
                   className="rounded-full px-2.5 py-1 text-red-400 ring-1 ring-red-500/30"
                 >
@@ -68,27 +66,20 @@ export default function SellTxList() {
 }
 
 function EditSellTxRow({ tx, onDone }: { tx: SellTransaction; onDone: () => void }) {
-  const { refresh } = useAppData();
+  const { updateSellTransaction } = useAppData();
   const [date, setDate] = useState(tx.date);
   const [quantity, setQuantity] = useState(String(tx.quantity));
   const [price, setPrice] = useState(String(tx.pricePerShareUsd));
   const [fx, setFx] = useState(String(tx.fxRate));
-  const [saving, setSaving] = useState(false);
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await updateSellTransaction(tx.id, {
-        date,
-        quantity: Math.floor(Number(quantity)),
-        pricePerShareUsd: Number(price),
-        fxRate: Number(fx),
-      });
-      await refresh();
-      onDone();
-    } finally {
-      setSaving(false);
-    }
+  function handleSave() {
+    updateSellTransaction(tx.id, {
+      date,
+      quantity: Math.floor(Number(quantity)),
+      pricePerShareUsd: Number(price),
+      fxRate: Number(fx),
+    });
+    onDone();
   }
 
   return (
@@ -107,7 +98,6 @@ function EditSellTxRow({ tx, onDone }: { tx: SellTransaction; onDone: () => void
       <div className="flex gap-2">
         <button
           onClick={handleSave}
-          disabled={saving}
           className="flex-1 rounded-lg bg-emerald-500 py-2 text-xs font-medium text-neutral-950"
         >
           저장

@@ -3,46 +3,32 @@
 import { useState } from "react";
 import { Card, NumberField, SectionTitle } from "@/components/ui";
 import { useAppData } from "@/lib/data/AppDataContext";
-import { addSellTransaction } from "@/lib/data/repository";
 import { formatShares } from "@/lib/format";
 
 export default function SellTxForm() {
-  const { user, refresh, remainingQuantity } = useAppData();
+  const { addSellTransaction, remainingQuantity } = useAppData();
   const [date, setDate] = useState("");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [fx, setFx] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const qty = Math.floor(Number(quantity));
   const priceNum = Number(price);
   const fxNum = Number(fx);
   const exceedsHoldings = qty > remainingQuantity;
   const valid =
-    user && date && qty > 0 && Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(fxNum) && fxNum > 0;
+    date && qty > 0 && Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(fxNum) && fxNum > 0;
 
-  async function handleSubmit() {
-    if (!valid || !user) return;
-    setSaving(true);
-    setErrorMsg(null);
-    try {
-      await addSellTransaction(user.id, {
-        date,
-        quantity: qty,
-        pricePerShareUsd: priceNum,
-        fxRate: fxNum,
-      });
-      setDate("");
-      setQuantity("");
-      setPrice("");
-      setFx("");
-      await refresh();
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "저장에 실패했습니다.");
-    } finally {
-      setSaving(false);
-    }
+  function handleSubmit() {
+    if (!valid) return;
+    addSellTransaction({ date, quantity: qty, pricePerShareUsd: priceNum, fxRate: fxNum });
+    setDate("");
+    setQuantity("");
+    setPrice("");
+    setFx("");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
   }
 
   return (
@@ -72,13 +58,12 @@ export default function SellTxForm() {
             현재 보유량({formatShares(remainingQuantity)})을 초과합니다.
           </p>
         )}
-        {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
         <button
-          disabled={!valid || saving || exceedsHoldings}
+          disabled={!valid || exceedsHoldings}
           onClick={handleSubmit}
           className="w-full rounded-xl bg-red-500 py-2.5 text-sm font-medium text-white disabled:opacity-40"
         >
-          {saving ? "저장 중..." : "매도 기록 저장"}
+          {saved ? "저장됨" : "매도 기록 저장"}
         </button>
       </div>
     </Card>

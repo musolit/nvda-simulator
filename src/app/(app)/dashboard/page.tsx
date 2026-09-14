@@ -1,6 +1,5 @@
 "use client";
 
-import PageState from "../PageState";
 import TopBar from "../TopBar";
 import { useAppData } from "@/lib/data/AppDataContext";
 import { usePriceFx } from "@/lib/data/usePriceFx";
@@ -12,9 +11,7 @@ export default function DashboardPage() {
   return (
     <>
       <TopBar title="대시보드" />
-      <PageState>
-        <DashboardContent />
-      </PageState>
+      <DashboardContent />
     </>
   );
 }

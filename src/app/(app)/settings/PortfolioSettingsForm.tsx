@@ -3,30 +3,21 @@
 import { useState } from "react";
 import { Card, NumberField, SectionTitle } from "@/components/ui";
 import { useAppData } from "@/lib/data/AppDataContext";
-import { updatePortfolioSettings } from "@/lib/data/repository";
 import { formatShares } from "@/lib/format";
 
 export default function PortfolioSettingsForm() {
-  const { user, portfolioSettings, remainingQuantity, refresh } = useAppData();
+  const { portfolioSettings, remainingQuantity, updatePortfolioSettings } = useAppData();
   const [qty, setQty] = useState(String(portfolioSettings.brokerQuantity));
   const [avgPrice, setAvgPrice] = useState(String(portfolioSettings.brokerAvgPriceUsd));
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  async function handleSave() {
-    if (!user) return;
-    setSaving(true);
-    setSaved(false);
-    try {
-      await updatePortfolioSettings(user.id, {
-        brokerQuantity: Math.floor(Number(qty)),
-        brokerAvgPriceUsd: Number(avgPrice),
-      });
-      await refresh();
-      setSaved(true);
-    } finally {
-      setSaving(false);
-    }
+  function handleSave() {
+    updatePortfolioSettings({
+      brokerQuantity: Math.floor(Number(qty)),
+      brokerAvgPriceUsd: Number(avgPrice),
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
   }
 
   return (
@@ -45,10 +36,9 @@ export default function PortfolioSettingsForm() {
       </p>
       <button
         onClick={handleSave}
-        disabled={saving}
-        className="mt-3 w-full rounded-xl bg-neutral-700 py-2.5 text-sm font-medium text-white disabled:opacity-40"
+        className="mt-3 w-full rounded-xl bg-neutral-700 py-2.5 text-sm font-medium text-white"
       >
-        {saving ? "저장 중..." : saved ? "저장됨" : "저장"}
+        {saved ? "저장됨" : "저장"}
       </button>
     </Card>
   );

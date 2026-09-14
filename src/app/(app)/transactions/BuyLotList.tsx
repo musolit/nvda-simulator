@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Card, NumberField, SectionTitle } from "@/components/ui";
 import { useAppData } from "@/lib/data/AppDataContext";
-import { deleteBuyLot, updateBuyLot } from "@/lib/data/repository";
 import { formatDate, formatShares, formatUsd } from "@/lib/format";
 import type { BuyLot } from "@/lib/types";
 
@@ -14,7 +13,7 @@ const SOURCE_LABEL: Record<BuyLot["source"], string> = {
 };
 
 export default function BuyLotList() {
-  const { allBuyLots, refresh } = useAppData();
+  const { allBuyLots, deleteBuyLot } = useAppData();
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const sorted = [...allBuyLots].sort((a, b) => {
@@ -43,26 +42,23 @@ export default function BuyLotList() {
                   {SOURCE_LABEL[lot.source]}
                 </p>
               </div>
-              {!lot.isAdjustment && (
-                <div className="flex gap-2 text-xs">
-                  <button
-                    onClick={() => setEditingId(lot.id)}
-                    className="rounded-full px-2.5 py-1 text-neutral-400 ring-1 ring-neutral-700"
-                  >
-                    수정
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirm("이 매수 lot을 삭제하시겠습니까?")) return;
-                      await deleteBuyLot(lot.id);
-                      await refresh();
-                    }}
-                    className="rounded-full px-2.5 py-1 text-red-400 ring-1 ring-red-500/30"
-                  >
-                    삭제
-                  </button>
-                </div>
-              )}
+              <div className="flex gap-2 text-xs">
+                <button
+                  onClick={() => setEditingId(lot.id)}
+                  className="rounded-full px-2.5 py-1 text-neutral-400 ring-1 ring-neutral-700"
+                >
+                  수정
+                </button>
+                <button
+                  onClick={() => {
+                    if (!confirm("이 매수 lot을 삭제하시겠습니까?")) return;
+                    deleteBuyLot(lot.id);
+                  }}
+                  className="rounded-full px-2.5 py-1 text-red-400 ring-1 ring-red-500/30"
+                >
+                  삭제
+                </button>
+              </div>
             </div>
           )
         )}
@@ -73,35 +69,30 @@ export default function BuyLotList() {
 }
 
 function EditBuyLotRow({ lot, onDone }: { lot: BuyLot; onDone: () => void }) {
-  const { refresh } = useAppData();
+  const { updateBuyLot } = useAppData();
   const [date, setDate] = useState(lot.date ?? "");
   const [quantity, setQuantity] = useState(String(lot.quantity));
   const [price, setPrice] = useState(String(lot.pricePerShareUsd));
-  const [saving, setSaving] = useState(false);
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await updateBuyLot(lot.id, {
-        date: date || null,
-        quantity: Math.floor(Number(quantity)),
-        pricePerShareUsd: Number(price),
-      });
-      await refresh();
-      onDone();
-    } finally {
-      setSaving(false);
-    }
+  function handleSave() {
+    updateBuyLot(lot.id, {
+      date: lot.isAdjustment ? lot.date : date || null,
+      quantity: Math.floor(Number(quantity)),
+      pricePerShareUsd: Number(price),
+    });
+    onDone();
   }
 
   return (
     <div className="space-y-2 rounded-lg bg-neutral-800/60 p-3">
-      <input
-        type="date"
-        value={date}
-        onChange={(e) => setDate(e.target.value)}
-        className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white ring-1 ring-neutral-700"
-      />
+      {!lot.isAdjustment && (
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white ring-1 ring-neutral-700"
+        />
+      )}
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="수량" value={quantity} onChange={setQuantity} step="1" />
         <NumberField label="체결가" value={price} onChange={setPrice} />
@@ -109,7 +100,6 @@ function EditBuyLotRow({ lot, onDone }: { lot: BuyLot; onDone: () => void }) {
       <div className="flex gap-2">
         <button
           onClick={handleSave}
-          disabled={saving}
           className="flex-1 rounded-lg bg-emerald-500 py-2 text-xs font-medium text-neutral-950"
         >
           저장

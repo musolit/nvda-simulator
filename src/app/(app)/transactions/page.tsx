@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import PageState from "../PageState";
 import TopBar from "../TopBar";
 import { PillButton } from "@/components/ui";
 import BuyLotForm from "./BuyLotForm";
@@ -18,34 +17,32 @@ export default function TransactionsPage() {
   return (
     <>
       <TopBar title="거래내역" />
-      <PageState>
-        <div className="space-y-4 p-4">
-          <div className="flex gap-2">
-            <PillButton active={tab === "buy"} onClick={() => setTab("buy")}>
-              매수
-            </PillButton>
-            <PillButton active={tab === "sell"} onClick={() => setTab("sell")}>
-              매도
-            </PillButton>
-            <PillButton active={tab === "import"} onClick={() => setTab("import")}>
-              카톡 가져오기
-            </PillButton>
-          </div>
-          {tab === "buy" && (
-            <>
-              <BuyLotForm />
-              <BuyLotList />
-            </>
-          )}
-          {tab === "sell" && (
-            <>
-              <SellTxForm />
-              <SellTxList />
-            </>
-          )}
-          {tab === "import" && <KakaoImport />}
+      <div className="space-y-4 p-4">
+        <div className="flex gap-2">
+          <PillButton active={tab === "buy"} onClick={() => setTab("buy")}>
+            매수
+          </PillButton>
+          <PillButton active={tab === "sell"} onClick={() => setTab("sell")}>
+            매도
+          </PillButton>
+          <PillButton active={tab === "import"} onClick={() => setTab("import")}>
+            카톡 가져오기
+          </PillButton>
         </div>
-      </PageState>
+        {tab === "buy" && (
+          <>
+            <BuyLotForm />
+            <BuyLotList />
+          </>
+        )}
+        {tab === "sell" && (
+          <>
+            <SellTxForm />
+            <SellTxList />
+          </>
+        )}
+        {tab === "import" && <KakaoImport />}
+      </div>
     </>
   );
 }

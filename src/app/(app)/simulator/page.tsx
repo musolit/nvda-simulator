@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import PageState from "../PageState";
 import TopBar from "../TopBar";
 import { useAppData } from "@/lib/data/AppDataContext";
 import { usePriceFx } from "@/lib/data/usePriceFx";
@@ -19,25 +18,23 @@ export default function SimulatorPage() {
   return (
     <>
       <TopBar title="시뮬레이터" />
-      <PageState>
-        <div className="space-y-4 p-4">
-          <PriceFxCard />
-          <div className="flex gap-2">
-            <PillButton active={mode === "sell"} onClick={() => setMode("sell")}>
-              매도 시뮬레이션
-            </PillButton>
-            <PillButton active={mode === "goal"} onClick={() => setMode("goal")}>
-              목표현금 역산
-            </PillButton>
-            <PillButton active={mode === "compare"} onClick={() => setMode("compare")}>
-              빠른비교
-            </PillButton>
-          </div>
-          {mode === "sell" && <SellSimulatorPanel />}
-          {mode === "goal" && <GoalSeekPanel />}
-          {mode === "compare" && <QuickComparePanel />}
+      <div className="space-y-4 p-4">
+        <PriceFxCard />
+        <div className="flex gap-2">
+          <PillButton active={mode === "sell"} onClick={() => setMode("sell")}>
+            매도 시뮬레이션
+          </PillButton>
+          <PillButton active={mode === "goal"} onClick={() => setMode("goal")}>
+            목표현금 역산
+          </PillButton>
+          <PillButton active={mode === "compare"} onClick={() => setMode("compare")}>
+            빠른비교
+          </PillButton>
         </div>
-      </PageState>
+        {mode === "sell" && <SellSimulatorPanel />}
+        {mode === "goal" && <GoalSeekPanel />}
+        {mode === "compare" && <QuickComparePanel />}
+      </div>
     </>
   );
 }

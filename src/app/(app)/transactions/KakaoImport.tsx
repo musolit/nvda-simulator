@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Card, SectionTitle } from "@/components/ui";
 import { useAppData } from "@/lib/data/AppDataContext";
-import { addBuyLot, addSellTransaction } from "@/lib/data/repository";
 import { parseKakaoFillText, suggestedDefaultSelection, type ParsedFill } from "@/lib/kakaoParser";
 
 interface DraftRow extends ParsedFill {
@@ -12,7 +11,7 @@ interface DraftRow extends ParsedFill {
 }
 
 export default function KakaoImport() {
-  const { user, refresh } = useAppData();
+  const { addBuyLot, addSellTransaction } = useAppData();
   const [text, setText] = useState("");
   const [rows, setRows] = useState<DraftRow[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -35,8 +34,8 @@ export default function KakaoImport() {
     setRows((prev) => prev?.map((r) => (r.key === key ? { ...r, ...patch } : r)) ?? null);
   }
 
-  async function handleSave() {
-    if (!rows || !user) return;
+  function handleSave() {
+    if (!rows) return;
     const toSave = rows.filter((r) => r.included);
     const problems: string[] = [];
     for (const r of toSave) {
@@ -58,14 +57,14 @@ export default function KakaoImport() {
     try {
       for (const r of toSave) {
         if (r.side === "buy") {
-          await addBuyLot(user.id, {
+          addBuyLot({
             date: r.date,
             quantity: r.quantity!,
             pricePerShareUsd: r.pricePerShareUsd!,
             source: "kakao_import",
           });
         } else if (r.side === "sell") {
-          await addSellTransaction(user.id, {
+          addSellTransaction({
             date: r.date!,
             quantity: r.quantity!,
             pricePerShareUsd: r.pricePerShareUsd!,
@@ -73,7 +72,6 @@ export default function KakaoImport() {
           });
         }
       }
-      await refresh();
       setSaveMessage(`${toSave.length}건 저장했습니다.`);
       setRows(null);
       setText("");
@@ -95,7 +93,7 @@ export default function KakaoImport() {
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={6}
-        placeholder={"[키움증권 체결 안내]\n▶종목명: 엔비디아(NVDA)\n▶매수수량: 77주\n▶잔량: 0주\n▶체결단가: USD 176.0100"}
+        placeholder={"[키움증권 체결 안내]\n▶종목명: 엔비디아(NVDA)\n▶매수수량: 10주\n▶잔량: 0주\n▶체결단가: USD 50.0000"}
         className="w-full rounded-xl bg-neutral-800/70 p-3 text-xs text-white ring-1 ring-neutral-700 outline-none focus:ring-emerald-500"
       />
       <button
