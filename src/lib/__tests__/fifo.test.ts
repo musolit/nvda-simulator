@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { applyRealizedSells, averageCost, consumeLotsFifo, sortLotsFifo, totalQuantity } from "../fifo";
-import { FIXTURE_CONFIRMED_LOTS, FIXTURE_SEED_LOTS } from "./fixtures";
+import {
+  applyRealizedSells,
+  averageCost,
+  computeLotStatuses,
+  consumeLotsFifo,
+  sortLotsFifo,
+  summarizeHoldings,
+  totalQuantity,
+} from "../fifo";
+import { FIXTURE_ADJUSTMENT_LOT, FIXTURE_CONFIRMED_LOTS, FIXTURE_SEED_LOTS, TWO_LOT_SCENARIO } from "./fixtures";
 import type { BuyLot } from "../types";
 
 describe("consumeLotsFifo", () => {
@@ -135,5 +143,128 @@ describe("applyRealizedSells", () => {
     ]);
     // Combined 200 shares consumed in date order regardless of input array order
     expect(totalQuantity(remaining)).toBe(totalQuantity(FIXTURE_CONFIRMED_LOTS) - 200);
+  });
+});
+
+describe("two-equal-lot real-sell scenario (154 + 154 shares, sell 263)", () => {
+  it("exhausts the first lot entirely and leaves 45 shares in the second", () => {
+    const remaining = applyRealizedSells(TWO_LOT_SCENARIO, [
+      { date: "2026-09-01", quantity: 263 },
+    ]);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe(TWO_LOT_SCENARIO[1].id);
+    expect(remaining[0].quantity).toBe(45);
+    expect(totalQuantity(remaining)).toBe(154 + 154 - 263);
+  });
+
+  it("a later sell simulation starts from the 45 remaining shares, never re-touching the consumed 154 + 109", () => {
+    const remaining = applyRealizedSells(TWO_LOT_SCENARIO, [
+      { date: "2026-09-01", quantity: 263 },
+    ]);
+    // Simulate selling the rest (45 shares): must come entirely from lot 2's
+    // remaining balance, at lot 2's price, never lot 1 (already exhausted).
+    const nextSale = consumeLotsFifo(remaining, 45);
+    expect(nextSale.consumptions).toEqual([
+      expect.objectContaining({ lotId: TWO_LOT_SCENARIO[1].id, quantity: 45, pricePerShareUsd: 95 }),
+    ]);
+    expect(nextSale.remainingLots).toHaveLength(0);
+  });
+
+  it("editing the sell (reducing it to 100 shares) recomputes remaining lots instead of double-subtracting", () => {
+    // Simulates a user correcting a previously-recorded sell's quantity: the
+    // ledger is replayed from scratch, so there's no leftover deduction from
+    // the old 263-share value.
+    const remaining = applyRealizedSells(TWO_LOT_SCENARIO, [
+      { date: "2026-09-01", quantity: 100 },
+    ]);
+    expect(totalQuantity(remaining)).toBe(154 + 154 - 100);
+    expect(remaining.find((l) => l.id === TWO_LOT_SCENARIO[0].id)?.quantity).toBe(54);
+  });
+
+  it("deleting the sell entirely restores full original holdings", () => {
+    const remaining = applyRealizedSells(TWO_LOT_SCENARIO, []);
+    expect(remaining).toEqual(TWO_LOT_SCENARIO);
+    expect(totalQuantity(remaining)).toBe(308);
+  });
+});
+
+describe("summarizeHoldings", () => {
+  it("computes confirmed vs. adjustment quantities and both average-cost variants", () => {
+    const remaining = applyRealizedSells(TWO_LOT_SCENARIO, [
+      { date: "2026-09-01", quantity: 263 },
+    ]);
+    const summary = summarizeHoldings(remaining);
+    expect(summary.confirmedQuantity).toBe(45);
+    expect(summary.adjustmentQuantity).toBe(0);
+    expect(summary.totalQuantity).toBe(45);
+    expect(summary.hasUnverifiedRemaining).toBe(false);
+    // Only lot 2 (price 95) remains, so both averages equal 95.
+    expect(summary.averageCostUsd).toBeCloseTo(95, 6);
+    expect(summary.confirmedAverageCostUsd).toBeCloseTo(95, 6);
+  });
+
+  it("flags hasUnverifiedRemaining and diverges the two averages when an adjustment lot is still held", () => {
+    const lots: BuyLot[] = [TWO_LOT_SCENARIO[1], FIXTURE_ADJUSTMENT_LOT];
+    const summary = summarizeHoldings(lots);
+    expect(summary.confirmedQuantity).toBe(154);
+    expect(summary.adjustmentQuantity).toBe(27);
+    expect(summary.totalQuantity).toBe(181);
+    expect(summary.hasUnverifiedRemaining).toBe(true);
+    expect(summary.confirmedAverageCostUsd).toBeCloseTo(95, 6);
+    // Blended average must differ from the confirmed-only average once the
+    // (differently priced) adjustment lot is mixed in.
+    expect(summary.averageCostUsd).not.toBeCloseTo(summary.confirmedAverageCostUsd, 6);
+    const expectedBlended = (154 * 95 + 27 * FIXTURE_ADJUSTMENT_LOT.pricePerShareUsd) / 181;
+    expect(summary.averageCostUsd).toBeCloseTo(expectedBlended, 6);
+  });
+
+  it("returns all zeros for an empty holding (fully sold out)", () => {
+    const summary = summarizeHoldings([]);
+    expect(summary).toEqual({
+      confirmedQuantity: 0,
+      adjustmentQuantity: 0,
+      totalQuantity: 0,
+      averageCostUsd: 0,
+      confirmedAverageCostUsd: 0,
+      hasUnverifiedRemaining: false,
+    });
+  });
+});
+
+describe("computeLotStatuses", () => {
+  it("reports 최초/매도차감/잔여 exactly as described for the two-equal-lot scenario", () => {
+    const remaining = applyRealizedSells(TWO_LOT_SCENARIO, [
+      { date: "2026-09-01", quantity: 263 },
+    ]);
+    const statuses = computeLotStatuses(TWO_LOT_SCENARIO, remaining);
+
+    expect(statuses).toHaveLength(2);
+    expect(statuses[0]).toMatchObject({
+      originalQuantity: 154,
+      soldQuantity: 154,
+      remainingQuantity: 0,
+      isExhausted: true,
+    });
+    expect(statuses[1]).toMatchObject({
+      originalQuantity: 154,
+      soldQuantity: 109,
+      remainingQuantity: 45,
+      isExhausted: false,
+    });
+  });
+
+  it("marks every lot untouched (soldQuantity 0) when there are no real sells yet", () => {
+    const statuses = computeLotStatuses(TWO_LOT_SCENARIO, TWO_LOT_SCENARIO);
+    expect(statuses.every((s) => s.soldQuantity === 0 && !s.isExhausted)).toBe(true);
+  });
+
+  it("orders statuses FIFO (adjustment lots last) regardless of input order", () => {
+    const lots: BuyLot[] = [FIXTURE_ADJUSTMENT_LOT, TWO_LOT_SCENARIO[1], TWO_LOT_SCENARIO[0]];
+    const statuses = computeLotStatuses(lots, lots);
+    expect(statuses.map((s) => s.lot.id)).toEqual([
+      TWO_LOT_SCENARIO[0].id,
+      TWO_LOT_SCENARIO[1].id,
+      FIXTURE_ADJUSTMENT_LOT.id,
+    ]);
   });
 });

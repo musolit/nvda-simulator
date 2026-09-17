@@ -1,4 +1,4 @@
-import type { BuyLot, FifoConsumeResult, LotConsumption } from "./types";
+import type { BuyLot, FifoConsumeResult, HoldingsSummary, LotConsumption, LotStatus } from "./types";
 
 /**
  * Sorts lots into FIFO consumption order: dated lots ascending by date (ties
@@ -125,4 +125,53 @@ export function applyRealizedSells(
 interface SellTransactionLike {
   date: string;
   quantity: number;
+}
+
+/**
+ * Live summary of current holdings from `remainingLots` (buy lots net of
+ * every recorded real sell, FIFO). Use this for the dashboard instead of
+ * the static PortfolioSettings — it's always in sync with the transaction
+ * ledger, with no separate counter that could drift.
+ *
+ * The adjustment lot's quantity is broken out separately because its price
+ * is a back-solved placeholder, not a confirmed fill: `averageCostUsd`
+ * (blended, all remaining lots) is therefore an estimate whenever
+ * `adjustmentQuantity > 0`, while `confirmedAverageCostUsd` (confirmed lots
+ * only) is exact.
+ */
+export function summarizeHoldings(remainingLots: BuyLot[]): HoldingsSummary {
+  const confirmedLots = remainingLots.filter((lot) => !lot.isAdjustment);
+  const adjustmentLots = remainingLots.filter((lot) => lot.isAdjustment);
+  const confirmedQuantity = totalQuantity(confirmedLots);
+  const adjustmentQuantity = totalQuantity(adjustmentLots);
+
+  return {
+    confirmedQuantity,
+    adjustmentQuantity,
+    totalQuantity: confirmedQuantity + adjustmentQuantity,
+    averageCostUsd: averageCost(remainingLots),
+    confirmedAverageCostUsd: averageCost(confirmedLots),
+    hasUnverifiedRemaining: adjustmentQuantity > 0,
+  };
+}
+
+/**
+ * Per-lot breakdown of how much of each original buy lot real sells have
+ * consumed so far, for the "잔여 매수 물량 확인" detail view. Compares each
+ * original lot in `allBuyLots` against its (possibly reduced, possibly
+ * absent) counterpart in `remainingLots` by id — a lot missing from
+ * `remainingLots` has been fully consumed.
+ */
+export function computeLotStatuses(allBuyLots: BuyLot[], remainingLots: BuyLot[]): LotStatus[] {
+  const remainingById = new Map(remainingLots.map((lot) => [lot.id, lot.quantity]));
+  return sortLotsFifo(allBuyLots).map((lot) => {
+    const remainingQuantity = remainingById.get(lot.id) ?? 0;
+    return {
+      lot,
+      originalQuantity: lot.quantity,
+      soldQuantity: lot.quantity - remainingQuantity,
+      remainingQuantity,
+      isExhausted: remainingQuantity === 0,
+    };
+  });
 }

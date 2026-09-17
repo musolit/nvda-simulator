@@ -1,41 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import { useAppData } from "./AppDataContext";
 
 /**
  * Shared current-price / FX-rate input state, persisted to
- * simulation_settings (localStorage) so it's remembered across the
- * dashboard, simulator, and across reloads.
- *
- * Only used inside pages rendered under <AppShell>, which withholds
- * rendering until localStorage has finished loading — so the initial
- * useState below always sees the real stored value, never a stale default.
+ * simulation_settings (localStorage). The actual string state lives in
+ * AppDataContext (see priceInput/fxInput there) so every consumer on a
+ * page — e.g. the simulator's price card plus whichever mode panel is
+ * active — reads and writes the exact same value; this hook is just a
+ * thin derived view over it (parses to numbers, computes `ready`).
  */
 export function usePriceFx() {
-  const { simulationSettings, updateSimulationSettings } = useAppData();
-  const [priceInput, setPriceInputState] = useState(
-    simulationSettings.lastPriceUsd !== null ? String(simulationSettings.lastPriceUsd) : ""
-  );
-  const [fxInput, setFxInputState] = useState(
-    simulationSettings.lastFxRate !== null ? String(simulationSettings.lastFxRate) : ""
-  );
-
-  function setPriceInput(value: string) {
-    setPriceInputState(value);
-    const n = Number(value);
-    if (value !== "" && Number.isFinite(n) && n > 0) {
-      updateSimulationSettings({ lastPriceUsd: n });
-    }
-  }
-
-  function setFxInput(value: string) {
-    setFxInputState(value);
-    const n = Number(value);
-    if (value !== "" && Number.isFinite(n) && n > 0) {
-      updateSimulationSettings({ lastFxRate: n });
-    }
-  }
+  const { priceInput, setPriceInput, fxInput, setFxInput } = useAppData();
 
   const price = Number(priceInput);
   const fxRate = Number(fxInput);

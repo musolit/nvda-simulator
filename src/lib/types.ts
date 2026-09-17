@@ -85,8 +85,58 @@ export interface TaxCalcResult {
 }
 
 export interface PortfolioSettings {
-  /** Broker (Kiwoom)-reported share count. Always the source of truth for display. */
+  /**
+   * Broker (Kiwoom)-reported share count, captured once at setup time.
+   * Reference/reconciliation value only — NOT the live current holding.
+   * The live count is always `remainingQuantity`, derived from the buy/sell
+   * ledger (see AppDataContext). Kept around so the user can see what the
+   * broker showed when they set the adjustment lot up.
+   */
   brokerQuantity: number;
-  /** Broker (Kiwoom)-reported average cost per share in USD. Source of truth for display. */
+  /**
+   * Broker (Kiwoom)-reported average cost per share in USD, captured once at
+   * setup time. Reference only — NOT the current cost basis. The current
+   * cost basis of remaining holdings is a different concept (see
+   * HoldingsSummary.averageCostUsd) that changes as FIFO lots are consumed
+   * by real sells.
+   */
   brokerAvgPriceUsd: number;
+}
+
+/**
+ * Derived, live snapshot of current holdings from the buy/sell ledger
+ * (`remainingLots`). This is what the dashboard should show — never the
+ * static PortfolioSettings above once any real sell has been recorded.
+ */
+export interface HoldingsSummary {
+  /** Confirmed (individually verified) shares remaining. */
+  confirmedQuantity: number;
+  /** Unverified "미확인 조정분" shares remaining (0 once/if consumed). */
+  adjustmentQuantity: number;
+  /** confirmedQuantity + adjustmentQuantity. */
+  totalQuantity: number;
+  /**
+   * FIFO weighted-average cost across ALL remaining lots, adjustment lot
+   * included. This is an ESTIMATE whenever adjustmentQuantity > 0, since the
+   * adjustment lot's price is a back-solved placeholder, not a confirmed
+   * fill price. UI label: "FIFO 기준 잔여 평균취득가(추정)".
+   */
+  averageCostUsd: number;
+  /**
+   * FIFO weighted-average cost across only the confirmed remaining lots
+   * (excludes the adjustment lot entirely). Fully accurate whenever it can
+   * be computed (confirmedQuantity > 0).
+   */
+  confirmedAverageCostUsd: number;
+  /** True if any unverified adjustment shares are still part of the holding. */
+  hasUnverifiedRemaining: boolean;
+}
+
+/** One buy lot's original size vs. how much of it real sells have consumed so far. */
+export interface LotStatus {
+  lot: BuyLot;
+  originalQuantity: number;
+  soldQuantity: number;
+  remainingQuantity: number;
+  isExhausted: boolean;
 }

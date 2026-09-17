@@ -63,9 +63,16 @@ function useTaxSettings(): TaxSettings {
 
 function FifoBreakdown({ result }: { result: SellSimulationResult }) {
   if (result.fifo.consumptions.length === 0) return null;
+  const touchesAdjustment = result.fifo.consumptions.some((c) => c.isAdjustment);
   return (
     <div className="mt-3 space-y-1.5 border-t border-neutral-800 pt-3">
       <p className="mb-1 text-xs font-medium text-neutral-400">FIFO 소진 내역</p>
+      {touchesAdjustment && (
+        <p className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-300 ring-1 ring-amber-500/20">
+          이 매도는 실제 매수일·매수가가 확인되지 않은 미확인 조정분까지 포함합니다. 해당
+          부분의 취득원가는 추정값이므로 실현이익·세금 계산의 정확도가 제한적입니다.
+        </p>
+      )}
       {result.fifo.consumptions.map((c, i) => (
         <div key={`${c.lotId}-${i}`} className="flex items-center justify-between text-xs">
           <span className={c.isAdjustment ? "text-amber-400" : "text-neutral-400"}>

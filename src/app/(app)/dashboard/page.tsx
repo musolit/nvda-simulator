@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import TopBar from "../TopBar";
 import { useAppData } from "@/lib/data/AppDataContext";
 import { usePriceFx } from "@/lib/data/usePriceFx";
 import { Card, GainText, NumberField, SectionTitle, StatRow } from "@/components/ui";
 import { formatKrw, formatPercent, formatShares, formatUsd } from "@/lib/format";
-import { totalQuantity } from "@/lib/fifo";
+import { summarizeHoldings } from "@/lib/fifo";
 
 export default function DashboardPage() {
   return (
@@ -17,11 +18,16 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const { portfolioSettings, remainingQuantity, remainingLots } = useAppData();
+  const { portfolioSettings, remainingLots } = useAppData();
   const { priceInput, setPriceInput, fxInput, setFxInput, price, fxRate, ready } = usePriceFx();
 
-  const qty = portfolioSettings.brokerQuantity;
-  const avgCost = portfolioSettings.brokerAvgPriceUsd;
+  // Live holdings, derived from the buy/sell ledger (never the static
+  // setup-time portfolioSettings below) — this is what stays in sync
+  // automatically as real buy/sell transactions are added, edited, or
+  // deleted.
+  const holdings = summarizeHoldings(remainingLots);
+  const qty = holdings.totalQuantity;
+  const avgCost = holdings.averageCostUsd;
 
   const valueUsd = ready ? qty * price : 0;
   const valueKrw = ready ? valueUsd * fxRate : 0;
@@ -29,7 +35,8 @@ function DashboardContent() {
   const unrealizedGainKrw = ready ? unrealizedGainUsd * fxRate : 0;
   const returnPercent = avgCost > 0 && ready ? ((price - avgCost) / avgCost) * 100 : 0;
 
-  const lotQtyMismatch = remainingQuantity !== qty;
+  const baselineDiffers =
+    portfolioSettings.brokerQuantity !== qty || portfolioSettings.brokerAvgPriceUsd !== avgCost;
 
   return (
     <div className="space-y-4 p-4">
@@ -44,11 +51,27 @@ function DashboardContent() {
             <p className="text-xl font-bold text-white tabular-nums">{formatShares(qty)}</p>
           </div>
         </div>
-        <StatRow label="키움 표시 평균매입가" value={formatUsd(avgCost)} />
-        {lotQtyMismatch && (
+
+        <StatRow label="FIFO 기준 잔여 평균취득가(추정)" value={formatUsd(avgCost)} />
+
+        {holdings.hasUnverifiedRemaining && (
           <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-300 ring-1 ring-amber-500/20">
-            거래내역 기준 보유수량은 {formatShares(remainingQuantity)}입니다. 실제 키움 계좌
-            수량과 다르면 설정에서 기준값을 맞춰주세요.
+            위 평균취득가에는 실제 매수일·매수가가 확인되지 않은 미확인 조정분{" "}
+            {formatShares(holdings.adjustmentQuantity)}가 포함되어 있어 추정치입니다. 확정
+            매수분만의 평균취득가는{" "}
+            <span className="font-medium text-amber-200">{formatUsd(holdings.confirmedAverageCostUsd)}</span>
+            입니다.{" "}
+            <Link href="/transactions" className="underline underline-offset-2">
+              매수 lot별 상세 보기
+            </Link>
+          </p>
+        )}
+
+        {baselineDiffers && (
+          <p className="mt-2 text-xs text-neutral-500">
+            최초 설정 시점 참고값: {formatShares(portfolioSettings.brokerQuantity)} /{" "}
+            {formatUsd(portfolioSettings.brokerAvgPriceUsd)} (거래내역 반영 전 값이며 현재 값과는
+            다른 개념입니다)
           </p>
         )}
       </Card>
@@ -81,7 +104,7 @@ function DashboardContent() {
           </p>
         ) : (
           <>
-            <StatRow label="평가금액" value={formatUsd(valueUsd)} sub={formatKrw(valueKrw)} />
+            <StatRow label="NVDA 주식 평가금액" value={formatUsd(valueUsd)} sub={formatKrw(valueKrw)} />
             <StatRow
               label="평가손익"
               value={
@@ -107,12 +130,17 @@ function DashboardContent() {
 
       <Card className="text-xs text-neutral-500">
         <p>
-          보유 lot: 확정 {remainingLots.filter((l) => !l.isAdjustment).length}건 · 총{" "}
-          {formatShares(totalQuantity(remainingLots))} (미확인 조정분 포함)
+          보유 lot: 확정 {formatShares(holdings.confirmedQuantity)}
+          {holdings.hasUnverifiedRemaining && ` + 미확인 조정분 ${formatShares(holdings.adjustmentQuantity)}`} = 총{" "}
+          {formatShares(holdings.totalQuantity)}
         </p>
         <p className="mt-1">
+          평가금액은 현재 보유 중인 주식만 반영하며, 매도로 확보한 현금은 포함하지 않습니다.
           평가손익/평가금액의 원화 환산은 위에 입력한 환율을 일괄 적용한 예상치입니다.
         </p>
+        <Link href="/transactions" className="mt-2 inline-block text-emerald-400 underline underline-offset-2">
+          매수 lot별 잔여 수량 상세 보기 →
+        </Link>
       </Card>
     </div>
   );

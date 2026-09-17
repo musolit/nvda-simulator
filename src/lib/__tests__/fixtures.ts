@@ -56,3 +56,30 @@ export const FIXTURE_ADJUSTMENT_LOT: BuyLot = {
 };
 
 export const FIXTURE_SEED_LOTS: BuyLot[] = [...FIXTURE_CONFIRMED_LOTS, FIXTURE_ADJUSTMENT_LOT];
+
+/**
+ * Two-equal-lot fixture mirroring the "first lot fully consumed, second lot
+ * partially consumed" scenario described when this app's real-sell/FIFO
+ * wiring was fixed: selling 263 shares against two 154-share lots exhausts
+ * the first and leaves 45 of the second. Dates/prices are fictional.
+ */
+export const TWO_LOT_SCENARIO: BuyLot[] = [
+  {
+    id: "two-lot-scenario-1",
+    date: "2021-06-01",
+    quantity: 154,
+    pricePerShareUsd: 90,
+    acquisitionFxRate: null,
+    isAdjustment: false,
+    source: "confirmed",
+  },
+  {
+    id: "two-lot-scenario-2",
+    date: "2021-06-02",
+    quantity: 154,
+    pricePerShareUsd: 95,
+    acquisitionFxRate: null,
+    isAdjustment: false,
+    source: "confirmed",
+  },
+];

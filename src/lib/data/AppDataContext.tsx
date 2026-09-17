@@ -84,6 +84,18 @@ interface AppDataState {
    */
   effectivePriorRealizedGainKrw: number;
 
+  /**
+   * Shared current-price / FX-rate text input state (see lib/data/usePriceFx.ts).
+   * Lives here, not in a per-component useState, so every consumer on the
+   * page (dashboard, and the simulator's price card + whichever mode panel
+   * is active) reads and writes the exact same value — typing in one place
+   * is instantly reflected everywhere else that reads it.
+   */
+  priceInput: string;
+  setPriceInput: (value: string) => void;
+  fxInput: string;
+  setFxInput: (value: string) => void;
+
   addBuyLot: (input: NewBuyLotInput) => void;
   updateBuyLot: (id: string, patch: BuyLotPatch) => void;
   deleteBuyLot: (id: string) => void;
@@ -112,6 +124,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     useState<PortfolioSettings>(EMPTY_PORTFOLIO_SETTINGS);
   const [simulationSettings, setSimulationSettings] =
     useState<SimulationSettingsRow>(DEFAULT_SIMULATION_SETTINGS);
+  const [priceInput, setPriceInputState] = useState("");
+  const [fxInput, setFxInputState] = useState("");
 
   // One-time client-side read of localStorage on mount. This can't run during
   // the initial render (server-rendered HTML and the client's first hydration
@@ -124,7 +138,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setAllBuyLots(loadBuyLots());
     setSellTransactions(loadSellTransactions());
     setPortfolioSettings(loadPortfolioSettings());
-    setSimulationSettings(loadSimulationSettings());
+    const simSettings = loadSimulationSettings();
+    setSimulationSettings(simSettings);
+    setPriceInputState(simSettings.lastPriceUsd !== null ? String(simSettings.lastPriceUsd) : "");
+    setFxInputState(simSettings.lastFxRate !== null ? String(simSettings.lastFxRate) : "");
     setLoading(false);
   }, []);
 
@@ -224,6 +241,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
+  function setPriceInput(value: string) {
+    setPriceInputState(value);
+    const n = Number(value);
+    if (value !== "" && Number.isFinite(n) && n > 0) {
+      updateSimulationSettings({ lastPriceUsd: n });
+    }
+  }
+
+  function setFxInput(value: string) {
+    setFxInputState(value);
+    const n = Number(value);
+    if (value !== "" && Number.isFinite(n) && n > 0) {
+      updateSimulationSettings({ lastFxRate: n });
+    }
+  }
+
   function importData(data: BackupData) {
     setAllBuyLots((prev) => {
       const existingIds = new Set(prev.map((l) => l.id));
@@ -280,6 +313,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     simulationSettings,
     yearRealizedGainFromSalesKrw,
     effectivePriorRealizedGainKrw,
+    priceInput,
+    setPriceInput,
+    fxInput,
+    setFxInput,
     addBuyLot,
     updateBuyLot,
     deleteBuyLot,
