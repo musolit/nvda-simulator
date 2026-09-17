@@ -4,7 +4,7 @@ import Link from "next/link";
 import TopBar from "../TopBar";
 import { useAppData } from "@/lib/data/AppDataContext";
 import { usePriceFx } from "@/lib/data/usePriceFx";
-import { Card, GainText, NumberField, SectionTitle, StatRow } from "@/components/ui";
+import { Card, GainText, InfoNote, NumberField, SectionTitle, StatRow } from "@/components/ui";
 import { formatKrw, formatPercent, formatShares, formatUsd } from "@/lib/format";
 import { summarizeHoldings } from "@/lib/fifo";
 
@@ -18,12 +18,11 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const { portfolioSettings, remainingLots } = useAppData();
+  const { remainingLots } = useAppData();
   const { priceInput, setPriceInput, fxInput, setFxInput, price, fxRate, ready } = usePriceFx();
 
-  // Live holdings, derived from the buy/sell ledger (never the static
-  // setup-time portfolioSettings below) — this is what stays in sync
-  // automatically as real buy/sell transactions are added, edited, or
+  // Live holdings, derived from the buy/sell ledger — this is what stays in
+  // sync automatically as real buy/sell transactions are added, edited, or
   // deleted.
   const holdings = summarizeHoldings(remainingLots);
   const qty = holdings.totalQuantity;
@@ -34,9 +33,6 @@ function DashboardContent() {
   const unrealizedGainUsd = ready ? (price - avgCost) * qty : 0;
   const unrealizedGainKrw = ready ? unrealizedGainUsd * fxRate : 0;
   const returnPercent = avgCost > 0 && ready ? ((price - avgCost) / avgCost) * 100 : 0;
-
-  const baselineDiffers =
-    portfolioSettings.brokerQuantity !== qty || portfolioSettings.brokerAvgPriceUsd !== avgCost;
 
   return (
     <div className="space-y-4 p-4">
@@ -52,28 +48,25 @@ function DashboardContent() {
           </div>
         </div>
 
-        <StatRow label="FIFO 기준 잔여 평균취득가(추정)" value={formatUsd(avgCost)} />
-
-        {holdings.hasUnverifiedRemaining && (
-          <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-300 ring-1 ring-amber-500/20">
-            위 평균취득가에는 실제 매수일·매수가가 확인되지 않은 미확인 조정분{" "}
-            {formatShares(holdings.adjustmentQuantity)}가 포함되어 있어 추정치입니다. 확정
-            매수분만의 평균취득가는{" "}
-            <span className="font-medium text-amber-200">{formatUsd(holdings.confirmedAverageCostUsd)}</span>
-            입니다.{" "}
-            <Link href="/transactions" className="underline underline-offset-2">
-              매수 lot별 상세 보기
-            </Link>
-          </p>
-        )}
-
-        {baselineDiffers && (
-          <p className="mt-2 text-xs text-neutral-500">
-            최초 설정 시점 참고값: {formatShares(portfolioSettings.brokerQuantity)} /{" "}
-            {formatUsd(portfolioSettings.brokerAvgPriceUsd)} (거래내역 반영 전 값이며 현재 값과는
-            다른 개념입니다)
-          </p>
-        )}
+        <StatRow
+          label={
+            <span>
+              FIFO 잔여 평균취득가
+              {holdings.hasUnverifiedRemaining && (
+                <InfoNote>
+                  실제 매수일·매수가가 확인되지 않은 미확인 조정분{" "}
+                  {formatShares(holdings.adjustmentQuantity)}가 포함되어 있어 이 평균취득가는
+                  추정치입니다. 확정 매수분만의 평균취득가는{" "}
+                  {formatUsd(holdings.confirmedAverageCostUsd)}입니다.{" "}
+                  <Link href="/transactions" className="underline underline-offset-2">
+                    매수 lot별 상세 보기
+                  </Link>
+                </InfoNote>
+              )}
+            </span>
+          }
+          value={formatUsd(avgCost)}
+        />
       </Card>
 
       <Card>

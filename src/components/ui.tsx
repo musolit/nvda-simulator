@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
@@ -20,7 +20,7 @@ export function StatRow({
   valueClassName = "text-white",
   sub,
 }: {
-  label: string;
+  label: ReactNode;
   value: ReactNode;
   valueClassName?: string;
   sub?: ReactNode;
@@ -98,4 +98,31 @@ export function PillButton({
 export function GainText({ value, children }: { value: number; children: ReactNode }) {
   const cls = value > 0 ? "text-emerald-400" : value < 0 ? "text-red-400" : "text-neutral-300";
   return <span className={cls}>{children}</span>;
+}
+
+/**
+ * Small tap-to-toggle info icon (ⓘ) that reveals a short explanatory note.
+ * For details someone may want once, not a warning that should always be
+ * visible — keeps the surrounding card uncluttered by default.
+ */
+export function InfoNote({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block align-middle">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="설명 보기"
+        aria-expanded={open}
+        className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-neutral-700 text-[10px] leading-none text-neutral-300"
+      >
+        i
+      </button>
+      {open && (
+        <span className="absolute left-1/2 top-6 z-20 w-[min(16rem,calc(100vw-2.5rem))] -translate-x-1/2 rounded-lg bg-neutral-800 p-3 text-left text-xs font-normal leading-relaxed text-neutral-300 shadow-lg ring-1 ring-neutral-700">
+          {children}
+        </span>
+      )}
+    </span>
+  );
 }
