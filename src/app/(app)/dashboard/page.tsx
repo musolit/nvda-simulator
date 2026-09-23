@@ -5,8 +5,9 @@ import TopBar from "../TopBar";
 import { useAppData } from "@/lib/data/AppDataContext";
 import { usePriceFx } from "@/lib/data/usePriceFx";
 import { Card, GainText, InfoNote, NumberField, SectionTitle, StatRow } from "@/components/ui";
-import { formatKrw, formatPercent, formatShares, formatUsd } from "@/lib/format";
+import { formatKrw, formatManwon, formatPercent, formatShares, formatUsd } from "@/lib/format";
 import { summarizeHoldings } from "@/lib/fifo";
+import { computeYearlyTaxSummaryForYear } from "@/lib/simulate";
 
 export default function DashboardPage() {
   return (
@@ -18,7 +19,7 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const { remainingLots } = useAppData();
+  const { remainingLots, allBuyLots, sellTransactions, simulationSettings } = useAppData();
   const { priceInput, setPriceInput, fxInput, setFxInput, price, fxRate, ready } = usePriceFx();
 
   // Live holdings, derived from the buy/sell ledger — this is what stays in
@@ -33,6 +34,15 @@ function DashboardContent() {
   const unrealizedGainUsd = ready ? (price - avgCost) * qty : 0;
   const unrealizedGainKrw = ready ? unrealizedGainUsd * fxRate : 0;
   const returnPercent = avgCost > 0 && ready ? ((price - avgCost) / avgCost) * 100 : 0;
+
+  // Estimated tax on this year's ACTUAL sells only — never simulation
+  // results. Recomputed fresh from the ledger every render, so recording,
+  // editing, or deleting a real sell updates this automatically.
+  const currentTaxYear = new Date().getFullYear();
+  const yearlyTax = computeYearlyTaxSummaryForYear(allBuyLots, sellTransactions, currentTaxYear, {
+    annualDeductionKrw: simulationSettings.annualDeductionKrw,
+    taxRatePercent: simulationSettings.taxRatePercent,
+  });
 
   return (
     <div className="space-y-4 p-4">
@@ -120,6 +130,20 @@ function DashboardContent() {
           </>
         )}
       </Card>
+
+      <Link href="/tax">
+        <Card className="active:opacity-80">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-neutral-500">{yearlyTax.paymentYear}년 5월 납부 예상</p>
+              <p className="text-sm font-semibold text-white">
+                양도소득세 {formatManwon(yearlyTax.taxKrw)}
+              </p>
+            </div>
+            <p className="text-xs text-neutral-500">{yearlyTax.taxYear}년 실제 매도 기준 ›</p>
+          </div>
+        </Card>
+      </Link>
 
       <Card className="text-xs text-neutral-500">
         <p>

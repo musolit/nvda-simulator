@@ -119,3 +119,108 @@ export function sumRealizedGainKrwForYear(history: RealizedSaleRecord[], year: n
     .filter((h) => h.date.startsWith(prefix))
     .reduce((sum, h) => sum + h.realizedGainKrw, 0);
 }
+
+/**
+ * One calendar year's estimated capital-gains tax, computed ONLY from
+ * recorded real sell transactions — never simulation results. Korean
+ * overseas-stock capital gains for `taxYear` are filed and paid in May of
+ * `paymentYear` (taxYear + 1). The annual deduction is applied exactly once
+ * regardless of how many real sales fall in the year, since `calculateTax`
+ * is called with the year's full total and `priorRealizedGainKrw: 0`.
+ */
+export interface YearlyTaxSummary {
+  taxYear: number;
+  paymentYear: number;
+  /** This year's real sells, FIFO-costed, oldest first. */
+  sales: RealizedSaleRecord[];
+  /** Sum of `sales[].realizedGainKrw`. */
+  totalRealizedGainKrw: number;
+  annualDeductionKrw: number;
+  /** max(0, totalRealizedGainKrw - annualDeductionKrw). */
+  taxableBaseKrw: number;
+  /** Estimated tax (transfer income tax + local income tax combined, per taxSettings.taxRatePercent). */
+  taxKrw: number;
+}
+
+/** Yearly tax summary for one specific year (0/empty if no real sells fell in it). */
+export function computeYearlyTaxSummaryForYear(
+  allBuyLots: BuyLot[],
+  sells: SellTransaction[],
+  taxYear: number,
+  taxSettings: TaxSettings = DEFAULT_TAX_SETTINGS
+): YearlyTaxSummary {
+  const prefix = String(taxYear);
+  const sales = computeRealizedSellHistory(allBuyLots, sells).filter((h) => h.date.startsWith(prefix));
+  const totalRealizedGainKrw = sales.reduce((sum, s) => sum + s.realizedGainKrw, 0);
+  const tax = calculateTax(totalRealizedGainKrw, 0, taxSettings);
+  return {
+    taxYear,
+    paymentYear: taxYear + 1,
+    sales,
+    totalRealizedGainKrw,
+    annualDeductionKrw: taxSettings.annualDeductionKrw,
+    taxableBaseKrw: tax.taxableBaseKrw,
+    taxKrw: tax.taxKrw,
+  };
+}
+
+/** Yearly tax summaries for every year that has at least one real sell, oldest first. */
+export function computeYearlyTaxSummaries(
+  allBuyLots: BuyLot[],
+  sells: SellTransaction[],
+  taxSettings: TaxSettings = DEFAULT_TAX_SETTINGS
+): YearlyTaxSummary[] {
+  const history = computeRealizedSellHistory(allBuyLots, sells);
+  const years = Array.from(new Set(history.map((h) => Number(h.date.slice(0, 4))))).sort(
+    (a, b) => a - b
+  );
+  return years.map((year) => computeYearlyTaxSummaryForYear(allBuyLots, sells, year, taxSettings));
+}
+
+/**
+ * Compares "already realized this tax year from real sells" (A) against "A
+ * plus one more hypothetical sale" (B), so a simulation can show the
+ * marginal tax it alone would add on top of what's already locked in for
+ * `taxYear` — without double-applying the annual deduction. Pass the
+ * simulated sale's own `realizedGainKrw` (from `simulateSell`) as
+ * `simulatedRealizedGainKrw`; this function never touches FIFO lots itself.
+ */
+export interface SimulatedYearlyTaxImpact {
+  taxYear: number;
+  paymentYear: number;
+  /** A: realized gain from real sells recorded in `taxYear` only. */
+  actualRealizedGainKrw: number;
+  /** A's estimated tax. */
+  actualTaxKrw: number;
+  /** This simulated (not-yet-executed) sale's own realized gain. */
+  simulatedRealizedGainKrw: number;
+  /** B's realized gain: actualRealizedGainKrw + simulatedRealizedGainKrw. */
+  combinedRealizedGainKrw: number;
+  /** B: estimated tax if the simulated sale were also executed in `taxYear`. */
+  combinedTaxKrw: number;
+  /** B - A: the tax this simulated sale alone would add. */
+  incrementalTaxKrw: number;
+}
+
+export function computeSimulatedYearlyTaxImpact(
+  allBuyLots: BuyLot[],
+  sells: SellTransaction[],
+  taxYear: number,
+  simulatedRealizedGainKrw: number,
+  taxSettings: TaxSettings = DEFAULT_TAX_SETTINGS
+): SimulatedYearlyTaxImpact {
+  const actual = computeYearlyTaxSummaryForYear(allBuyLots, sells, taxYear, taxSettings);
+  // calculateTax's own "prior" mechanism already handles the shared annual
+  // deduction correctly (see its docs): this gives exactly B - A.
+  const incrementalTax = calculateTax(simulatedRealizedGainKrw, actual.totalRealizedGainKrw, taxSettings);
+  return {
+    taxYear,
+    paymentYear: taxYear + 1,
+    actualRealizedGainKrw: actual.totalRealizedGainKrw,
+    actualTaxKrw: actual.taxKrw,
+    simulatedRealizedGainKrw,
+    combinedRealizedGainKrw: actual.totalRealizedGainKrw + simulatedRealizedGainKrw,
+    combinedTaxKrw: actual.taxKrw + incrementalTax.taxKrw,
+    incrementalTaxKrw: incrementalTax.taxKrw,
+  };
+}

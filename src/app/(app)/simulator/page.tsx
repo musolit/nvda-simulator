@@ -6,7 +6,12 @@ import { useAppData } from "@/lib/data/AppDataContext";
 import { usePriceFx } from "@/lib/data/usePriceFx";
 import { Card, GainText, NumberField, PillButton, SectionTitle, StatRow } from "@/components/ui";
 import { formatDate, formatKrw, formatShares, formatUsd } from "@/lib/format";
-import { simulateSell, type SellSimulationResult } from "@/lib/simulate";
+import {
+  computeSimulatedYearlyTaxImpact,
+  computeYearlyTaxSummaryForYear,
+  simulateSell,
+  type SellSimulationResult,
+} from "@/lib/simulate";
 import { findSharesForTargetCash } from "@/lib/reverseCalc";
 import type { TaxSettings } from "@/lib/types";
 
@@ -100,13 +105,27 @@ function TaxExplainer() {
   );
 }
 
+const TAX_YEAR_CHOICES_AHEAD = 2;
+
 function SellSimulatorPanel() {
-  const { remainingLots, remainingQuantity, effectivePriorRealizedGainKrw } = useAppData();
+  const { remainingLots, remainingQuantity, allBuyLots, sellTransactions } = useAppData();
   const { price, fxRate, ready } = usePriceFx();
   const taxSettings = useTaxSettings();
   const [qtyInput, setQtyInput] = useState("");
+  const currentYear = new Date().getFullYear();
+  const [taxYear, setTaxYear] = useState(currentYear);
+  const taxYearChoices = Array.from(
+    { length: TAX_YEAR_CHOICES_AHEAD + 1 },
+    (_, i) => currentYear + i
+  );
 
   const qty = Math.max(0, Math.floor(Number(qtyInput) || 0));
+
+  // A: this tax year's real sells only — never simulation results.
+  const yearlyActual = useMemo(
+    () => computeYearlyTaxSummaryForYear(allBuyLots, sellTransactions, taxYear, taxSettings),
+    [allBuyLots, sellTransactions, taxYear, taxSettings]
+  );
 
   const result = useMemo(() => {
     if (!ready || qtyInput === "") return null;
@@ -115,10 +134,24 @@ function SellSimulatorPanel() {
       sellQuantity: qty,
       currentPriceUsd: price,
       fxRate,
-      priorRealizedGainKrw: effectivePriorRealizedGainKrw,
+      // Scoped to the selected tax year's actual sells (A), not "this year
+      // + other stocks" — see computeYearlyTaxSummaryForYear's docs.
+      priorRealizedGainKrw: yearlyActual.totalRealizedGainKrw,
       taxSettings,
     });
-  }, [ready, qtyInput, qty, remainingLots, price, fxRate, effectivePriorRealizedGainKrw, taxSettings]);
+  }, [ready, qtyInput, qty, remainingLots, price, fxRate, yearlyActual.totalRealizedGainKrw, taxSettings]);
+
+  // A vs. B (A + this simulated sale) for the selected tax year.
+  const yearlyImpact = useMemo(() => {
+    if (!result) return null;
+    return computeSimulatedYearlyTaxImpact(
+      allBuyLots,
+      sellTransactions,
+      taxYear,
+      result.realizedGainKrw,
+      taxSettings
+    );
+  }, [result, allBuyLots, sellTransactions, taxYear, taxSettings]);
 
   return (
     <div className="space-y-4">
@@ -126,9 +159,17 @@ function SellSimulatorPanel() {
         <SectionTitle>매도수량</SectionTitle>
         <NumberField label="매도할 주식수" value={qtyInput} onChange={setQtyInput} placeholder="200" suffix="주" step="1" />
         <p className="mt-2 text-xs text-neutral-500">현재 보유: {formatShares(remainingQuantity)}</p>
+        <p className="mb-1.5 mt-3 text-xs font-medium text-neutral-400">매도 예정 연도</p>
+        <div className="flex gap-2">
+          {taxYearChoices.map((year) => (
+            <PillButton key={year} active={year === taxYear} onClick={() => setTaxYear(year)}>
+              {year}년
+            </PillButton>
+          ))}
+        </div>
       </Card>
 
-      {result && (
+      {result && yearlyImpact && (
         <Card>
           <SectionTitle>시뮬레이션 결과</SectionTitle>
           {result.insufficientShares && (
@@ -149,9 +190,25 @@ function SellSimulatorPanel() {
             }
             sub={formatKrw(result.realizedGainKrw)}
           />
-          <StatRow label="연간 누적 실현이익" value={formatKrw(result.tax.cumulativeRealizedGainKrw)} />
-          <StatRow label="기본공제 후 과세표준" value={formatKrw(result.tax.taxableBaseKrw)} />
-          <StatRow label="예상 양도소득세" value={formatKrw(result.tax.taxKrw)} valueClassName="text-red-400" />
+
+          <div className="my-2 border-t border-neutral-800" />
+          <p className="mb-1 text-xs text-neutral-500">
+            {yearlyImpact.taxYear}년 귀속 · {yearlyImpact.paymentYear}년 5월 납부 예상
+          </p>
+          <StatRow
+            label={`${yearlyImpact.taxYear}년 실제 매도 기준 예상 세금`}
+            value={formatKrw(yearlyImpact.actualTaxKrw)}
+          />
+          <StatRow
+            label={`이번 매도까지 실행 시 ${yearlyImpact.paymentYear}년 총 예상 세금`}
+            value={formatKrw(yearlyImpact.combinedTaxKrw)}
+            valueClassName="text-red-400"
+          />
+          <StatRow
+            label="이번 매도로 증가하는 세금"
+            value={`+${formatKrw(yearlyImpact.incrementalTaxKrw)}`}
+            valueClassName="text-red-400"
+          />
           <StatRow label="세후 확보 예상금액" value={formatKrw(result.netCashKrw)} valueClassName="text-emerald-400" />
           <div className="my-2 border-t border-neutral-800" />
           <StatRow label="매도 후 남은 수량" value={formatShares(result.remainingQuantity)} />

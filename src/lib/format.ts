@@ -33,3 +33,9 @@ export function formatPercent(value: number, fractionDigits = 2): string {
 export function formatDate(date: string | null): string {
   return date ?? "미확인";
 }
+
+/** Rounded, human-scale KRW for a concise headline (e.g. "약 1,900만원"). */
+export function formatManwon(value: number): string {
+  const manwon = Math.round(value / 10_000);
+  return `약 ${manwon.toLocaleString("ko-KR")}만원`;
+}
