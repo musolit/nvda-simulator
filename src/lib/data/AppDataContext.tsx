@@ -5,6 +5,11 @@ import { applyRealizedSells, totalQuantity } from "@/lib/fifo";
 import { computeRealizedSellHistory, sumRealizedGainKrwForYear } from "@/lib/simulate";
 import type { BuyLot, PortfolioSettings, SellTransaction } from "@/lib/types";
 import {
+  cloneBaselineBuyLots,
+  cloneBaselinePortfolioSettings,
+  cloneBaselineSellTransactions,
+} from "@/data/nvdaBaseline";
+import {
   clearAll,
   clearCorruptKeyWithBackup,
   DEFAULT_SIMULATION_SETTINGS,
@@ -154,18 +159,42 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // localStorage doesn't exist on the server) — an effect is the standard,
   // SSR-safe place to pull in browser-only storage.
   function readStorageIntoState() {
-    // Read-only: computes whether the existing data is intact, missing-flag
-    // ("legacy-found"), or unreadable ("corrupt") BEFORE deciding what the UI
-    // shows — see getStartupStorageStatus's doc comment. Loading each value
-    // below always uses the safe-fallback readers regardless of status, since
-    // that never writes anything; AppShell is what decides whether to render
-    // this data or a recovery screen first.
+    // Read-only check: computes whether the existing data is intact,
+    // missing-flag ("legacy-found"), or unreadable ("corrupt") — see
+    // getStartupStorageStatus's doc comment.
     const status = getStartupStorageStatus();
-    setStorageStatus(status);
-    setInitialized(loadIsInitialized());
-    setAllBuyLots(loadBuyLots());
-    setSellTransactions(loadSellTransactions());
-    setPortfolioSettings(loadPortfolioSettings());
+    const isInit = loadIsInitialized();
+    // "normal" + never-initialized means storage has no meaningful NVDA data
+    // at all — either truly first-ever load, or every key got wiped (e.g. a
+    // Safari storage clear). Rather than show the empty onboarding screen,
+    // seed this app's confirmed real baseline (src/data/nvdaBaseline.ts) so
+    // the app never drops back to zero. New buy/sell entries added after
+    // this point save normally on top; only another full wipe falls back to
+    // the baseline again.
+    const isFreshStorage = status.kind === "normal" && !isInit;
+
+    let buyLots: BuyLot[];
+    let sellTx: SellTransaction[];
+    let portfolio: PortfolioSettings;
+    if (isFreshStorage) {
+      buyLots = cloneBaselineBuyLots();
+      sellTx = cloneBaselineSellTransactions();
+      portfolio = cloneBaselinePortfolioSettings();
+      saveBuyLots(buyLots);
+      saveSellTransactions(sellTx);
+      savePortfolioSettings(portfolio);
+      markInitialized();
+    } else {
+      buyLots = loadBuyLots();
+      sellTx = loadSellTransactions();
+      portfolio = loadPortfolioSettings();
+    }
+
+    setStorageStatus(isFreshStorage ? { kind: "normal" } : status);
+    setInitialized(isFreshStorage ? true : isInit);
+    setAllBuyLots(buyLots);
+    setSellTransactions(sellTx);
+    setPortfolioSettings(portfolio);
     const simSettings = loadSimulationSettings();
     setSimulationSettings(simSettings);
     setPriceInputState(simSettings.lastPriceUsd !== null ? String(simSettings.lastPriceUsd) : "");

@@ -5,6 +5,7 @@ import TopBar from "../TopBar";
 import PortfolioSettingsForm from "./PortfolioSettingsForm";
 import TaxSettingsForm from "./TaxSettingsForm";
 import BackupSection from "./BackupSection";
+import RestoreBaselineButton from "./RestoreBaselineButton";
 import DangerZone from "./DangerZone";
 
 export default function SettingsPage() {
@@ -15,6 +16,7 @@ export default function SettingsPage() {
         <PortfolioSettingsForm />
         <TaxSettingsForm />
         <BackupSection />
+        <RestoreBaselineButton />
         <Link
           href="/diagnostics"
           className="block text-center text-xs text-neutral-500 underline underline-offset-2"
