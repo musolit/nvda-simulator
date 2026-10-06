@@ -249,3 +249,94 @@ describe("writeStorageBackupSnapshot / clearCorruptKeyWithBackup", () => {
     expect(backup.sellTransactions.raw).toBe("{broken");
   });
 });
+
+describe("replaceBuyLotsAndSellTransactions", () => {
+  it("backs up the pre-replace state, then wholesale-replaces buyLots and sellTransactions (not a merge)", async () => {
+    const { replaceBuyLotsAndSellTransactions, saveBuyLots, loadBuyLots, loadSellTransactions } =
+      await import("../localStore");
+
+    saveBuyLots([
+      { id: "old-net-lot", date: "2024-06-01", quantity: 50, pricePerShareUsd: 999, acquisitionFxRate: null, isAdjustment: false, source: "manual" },
+    ]);
+
+    const newBuyLots = [
+      { id: "gross-lot-1", date: "2024-01-01", quantity: 100, pricePerShareUsd: 10, acquisitionFxRate: null, isAdjustment: false, source: "manual" as const },
+      { id: "gross-lot-2", date: "2024-02-01", quantity: 100, pricePerShareUsd: 12, acquisitionFxRate: null, isAdjustment: false, source: "manual" as const },
+    ];
+    const newSells = [
+      { id: "sell-1", date: "2024-03-01", quantity: 60, pricePerShareUsd: 20, fxRate: 1300, note: null },
+    ];
+
+    const { backupKey } = replaceBuyLotsAndSellTransactions(newBuyLots, newSells);
+    expect(backupKey).toMatch(/^nvda-simulator-backup-\d{8}-\d{6}$/);
+
+    // The old lot is GONE, not merged alongside the new ones.
+    expect(loadBuyLots()).toEqual(newBuyLots);
+    expect(loadSellTransactions()).toEqual(newSells);
+
+    // But it's recoverable from the backup taken just before the replace.
+    const backup = JSON.parse(window.localStorage.getItem(backupKey!)!);
+    expect(JSON.parse(backup.buyLots.raw)).toEqual([
+      { id: "old-net-lot", date: "2024-06-01", quantity: 50, pricePerShareUsd: 999, acquisitionFxRate: null, isAdjustment: false, source: "manual" },
+    ]);
+  });
+
+  it("never touches portfolioSettings, simulationSettings, or the initialized flag", async () => {
+    const {
+      replaceBuyLotsAndSellTransactions,
+      markInitialized,
+      savePortfolioSettings,
+      saveSimulationSettings,
+      loadPortfolioSettings,
+      loadSimulationSettings,
+      isInitialized,
+    } = await import("../localStore");
+
+    markInitialized();
+    savePortfolioSettings({ brokerQuantity: 2105, brokerAvgPriceUsd: 150 });
+    saveSimulationSettings({
+      annualDeductionKrw: 2_500_000,
+      taxRatePercent: 0.22,
+      priorRealizedGainKrw: 1_000_000,
+      lastPriceUsd: 180,
+      lastFxRate: 1400,
+    });
+
+    replaceBuyLotsAndSellTransactions([], []);
+
+    expect(isInitialized()).toBe(true);
+    expect(loadPortfolioSettings()).toEqual({ brokerQuantity: 2105, brokerAvgPriceUsd: 150 });
+    expect(loadSimulationSettings().priorRealizedGainKrw).toBe(1_000_000);
+  });
+
+  it(
+    "avoids the double-FIFO-deduction bug: replacing a net snapshot with the true gross lots + sells " +
+      "reproduces the pre-loss remaining quantity, instead of under-counting if the sells were added on top of the net snapshot",
+    async () => {
+      const { replaceBuyLotsAndSellTransactions, loadBuyLots, loadSellTransactions } = await import(
+        "../localStore"
+      );
+      const { applyRealizedSells } = await import("@/lib/fifo");
+
+      // Simulates exactly the recovered scenario: only a net-of-sales total
+      // could be restored (sells already subtracted), so the gross lots +
+      // the real sells must replace it wholesale.
+      const grossLots = [
+        { id: "lot-1", date: "2024-01-01", quantity: 100, pricePerShareUsd: 10, acquisitionFxRate: null, isAdjustment: false, source: "manual" as const },
+        { id: "lot-2", date: "2024-02-01", quantity: 100, pricePerShareUsd: 12, acquisitionFxRate: null, isAdjustment: false, source: "manual" as const },
+      ];
+      const realSells = [
+        { id: "sell-1", date: "2024-03-01", quantity: 60, pricePerShareUsd: 20, fxRate: 1300, note: null },
+      ];
+
+      replaceBuyLotsAndSellTransactions(grossLots, realSells);
+
+      const remaining = applyRealizedSells(loadBuyLots(), loadSellTransactions());
+      const remainingTotal = remaining.reduce((sum, l) => sum + l.quantity, 0);
+      // 200 gross - 60 sold = 140, matching what the net snapshot should
+      // have shown — NOT 200 - 60 - 60 = 80, which is what would happen if
+      // the 60-share sell were applied on top of an already-net buyLots set.
+      expect(remainingTotal).toBe(140);
+    }
+  );
+});

@@ -233,6 +233,27 @@ export function clearCorruptKeyWithBackup(key: string): string | null {
   return backupKey;
 }
 
+/**
+ * Explicit, user-initiated disaster recovery: wholesale REPLACES (not
+ * merges, unlike importData's additive merge) buyLots and sellTransactions
+ * together. Needed when the currently-stored buyLots no longer represent
+ * the true pre-sale (gross) lot set — e.g. after a partial data-loss
+ * recovery where only the net-of-sales total could be restored — so adding
+ * the real sell transactions on top of the current buyLots would double-
+ * apply FIFO consumption. Always backs up everything first. Never touches
+ * portfolioSettings/simulationSettings/initialized.
+ */
+export function replaceBuyLotsAndSellTransactions(
+  buyLots: BuyLot[],
+  sellTransactions: SellTransaction[]
+): { backupKey: string | null } {
+  if (!isBrowser()) return { backupKey: null };
+  const backupKey = writeStorageBackupSnapshot();
+  saveBuyLots(buyLots);
+  saveSellTransactions(sellTransactions);
+  return { backupKey };
+}
+
 export function isInitialized(): boolean {
   return readJson(KEYS.initialized, false);
 }

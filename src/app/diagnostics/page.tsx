@@ -194,6 +194,13 @@ export default function DiagnosticsPage() {
         다시 읽기
       </button>
 
+      <Link
+        href="/diagnostics/restore"
+        className="block text-center text-xs text-red-400 underline underline-offset-2"
+      >
+        buyLots/sellTransactions 전체 교체 복구 (위험, 백업 선행)
+      </Link>
+
       <Link href="/" className="block text-center text-xs text-neutral-500 underline underline-offset-2">
         앱으로 돌아가기
       </Link>
