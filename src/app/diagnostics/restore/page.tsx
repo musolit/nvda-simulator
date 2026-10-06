@@ -220,9 +220,20 @@ export default function RestorePage() {
             <div className="mt-4 rounded-lg bg-emerald-950/40 p-3 text-xs text-emerald-300 ring-1 ring-emerald-900">
               <p>적용되었습니다.</p>
               {applied.backupKey && <p className="mt-1">교체 전 데이터 백업 key: {applied.backupKey}</p>}
-              <Link href="/" className="mt-2 inline-block underline underline-offset-2">
-                앱으로 돌아가서 확인하기 →
-              </Link>
+              <button
+                onClick={() => {
+                  // A Next.js client-side navigation (Link/router.push) can
+                  // land back on an already-mounted AppDataProvider instance
+                  // whose in-memory state was read BEFORE this page wrote
+                  // directly to localStorage — it would then keep rendering
+                  // the pre-restore values. A full navigation forces
+                  // AppDataProvider to mount fresh and re-read localStorage.
+                  window.location.replace("/");
+                }}
+                className="mt-2 inline-block underline underline-offset-2"
+              >
+                앱으로 돌아가서 확인하기 (전체 새로고침) →
+              </button>
             </div>
           )}
         </Card>
