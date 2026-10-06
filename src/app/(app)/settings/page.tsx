@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import TopBar from "../TopBar";
 import PortfolioSettingsForm from "./PortfolioSettingsForm";
 import TaxSettingsForm from "./TaxSettingsForm";
@@ -14,6 +15,12 @@ export default function SettingsPage() {
         <PortfolioSettingsForm />
         <TaxSettingsForm />
         <BackupSection />
+        <Link
+          href="/diagnostics"
+          className="block text-center text-xs text-neutral-500 underline underline-offset-2"
+        >
+          저장 데이터 진단 (read only)
+        </Link>
         <DangerZone />
       </div>
     </>

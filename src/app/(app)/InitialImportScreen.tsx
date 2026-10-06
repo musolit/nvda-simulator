@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui";
 import { useAppData } from "@/lib/data/AppDataContext";
 import { parseBackupJson } from "@/lib/data/parseBackup";
@@ -96,6 +97,13 @@ export default function InitialImportScreen() {
       >
         나중에 하기 (빈 상태로 시작해서 직접 입력)
       </button>
+
+      <Link
+        href="/diagnostics"
+        className="mt-2 text-center text-xs text-neutral-600 underline underline-offset-2"
+      >
+        원래 쓰던 데이터가 안 보이나요? 저장 데이터 진단하기
+      </Link>
     </div>
   );
 }

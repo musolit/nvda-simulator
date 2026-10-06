@@ -6,9 +6,11 @@ import { computeRealizedSellHistory, sumRealizedGainKrwForYear } from "@/lib/sim
 import type { BuyLot, PortfolioSettings, SellTransaction } from "@/lib/types";
 import {
   clearAll,
+  clearCorruptKeyWithBackup,
   DEFAULT_SIMULATION_SETTINGS,
   EMPTY_PORTFOLIO_SETTINGS,
   generateId,
+  getStartupStorageStatus,
   isInitialized as loadIsInitialized,
   loadBuyLots,
   loadPortfolioSettings,
@@ -19,8 +21,12 @@ import {
   savePortfolioSettings,
   saveSellTransactions,
   saveSimulationSettings,
+  writeStorageBackupSnapshot,
   type SimulationSettingsRow,
+  type StartupStorageStatus,
 } from "./localStore";
+
+export type { StartupStorageStatus };
 
 export type { SimulationSettingsRow };
 
@@ -68,6 +74,20 @@ interface AppDataState {
   loading: boolean;
   /** True once the user has completed (or skipped) the first-run data import. */
   initialized: boolean;
+  /**
+   * Result of the one-time, read-only startup storage check (see
+   * getStartupStorageStatus). "legacy-found"/"corrupt" must be resolved
+   * (via recoverLegacyData / retryStorageRead / clearCorruptKeyAndContinue)
+   * before falling through to the normal initialized/onboarding branch —
+   * see AppShell.
+   */
+  storageStatus: StartupStorageStatus;
+  /** Backs up all owned keys, then marks the found data as the active data (no destructive writes). */
+  recoverLegacyData: () => void;
+  /** Re-runs the read-only startup check again (e.g. after a transient error). */
+  retryStorageRead: () => void;
+  /** Explicit, user-initiated: backs up everything, then clears just the one unreadable key. */
+  clearCorruptKeyAndContinue: (key: string) => void;
   allBuyLots: BuyLot[];
   sellTransactions: SellTransaction[];
   /** Buy lots remaining after applying every recorded real sell, FIFO. */
@@ -118,6 +138,7 @@ const AppDataContext = createContext<AppDataState | null>(null);
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<StartupStorageStatus>({ kind: "normal" });
   const [allBuyLots, setAllBuyLots] = useState<BuyLot[]>([]);
   const [sellTransactions, setSellTransactions] = useState<SellTransaction[]>([]);
   const [portfolioSettings, setPortfolioSettings] =
@@ -132,8 +153,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   // pass both need to show the same "loading" defaults above, since
   // localStorage doesn't exist on the server) — an effect is the standard,
   // SSR-safe place to pull in browser-only storage.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  function readStorageIntoState() {
+    // Read-only: computes whether the existing data is intact, missing-flag
+    // ("legacy-found"), or unreadable ("corrupt") BEFORE deciding what the UI
+    // shows — see getStartupStorageStatus's doc comment. Loading each value
+    // below always uses the safe-fallback readers regardless of status, since
+    // that never writes anything; AppShell is what decides whether to render
+    // this data or a recovery screen first.
+    const status = getStartupStorageStatus();
+    setStorageStatus(status);
     setInitialized(loadIsInitialized());
     setAllBuyLots(loadBuyLots());
     setSellTransactions(loadSellTransactions());
@@ -142,6 +170,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setSimulationSettings(simSettings);
     setPriceInputState(simSettings.lastPriceUsd !== null ? String(simSettings.lastPriceUsd) : "");
     setFxInputState(simSettings.lastFxRate !== null ? String(simSettings.lastFxRate) : "");
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    readStorageIntoState();
     setLoading(false);
   }, []);
 
@@ -293,6 +326,28 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setInitialized(true);
   }
 
+  function recoverLegacyData() {
+    // The data found under this app's own keys already matches the current
+    // schema (storageStatus only reports "legacy-found" for THIS app's own
+    // keys) — so "recovering" it is just: back up everything first, then
+    // flip the initialized flag. The actual buyLots/sellTransactions/
+    // portfolioSettings state was already loaded into memory by the mount
+    // effect regardless of the flag, so nothing else needs to change.
+    writeStorageBackupSnapshot();
+    markInitialized();
+    setInitialized(true);
+    setStorageStatus({ kind: "normal" });
+  }
+
+  function retryStorageRead() {
+    readStorageIntoState();
+  }
+
+  function clearCorruptKeyAndContinue(key: string) {
+    clearCorruptKeyWithBackup(key);
+    readStorageIntoState();
+  }
+
   function resetAll() {
     clearAll();
     setAllBuyLots([]);
@@ -305,6 +360,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const value: AppDataState = {
     loading,
     initialized,
+    storageStatus,
+    recoverLegacyData,
+    retryStorageRead,
+    clearCorruptKeyAndContinue,
     allBuyLots,
     sellTransactions,
     remainingLots,
